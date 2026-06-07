@@ -3,7 +3,7 @@ import base64
 import json
 import logging
 
-from telegram import Update, Voice
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 from .config import settings

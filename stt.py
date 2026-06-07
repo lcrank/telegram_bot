@@ -8,14 +8,12 @@ import os
 import asyncio
 from functools import lru_cache
 
-# ── Option A: local Whisper model (faster, private, free) ─────────────────────
 try:
     import whisper as _whisper
     _USE_LOCAL = True
 except ImportError:
     _USE_LOCAL = False
 
-# ── Option B: OpenAI hosted Whisper API (no GPU needed) ───────────────────────
 from openai import AsyncOpenAI
 from .config import settings
 
@@ -24,16 +22,11 @@ _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 @lru_cache(maxsize=1)
 def _load_local_model():
-    """Load the Whisper model once and cache it."""
     import whisper
-    return whisper.load_model("base")   # swap to "small" or "medium" for better accuracy
+    return whisper.load_model("base")
 
 
 async def transcribe(audio_bytes: bytes, language: str = "en") -> str:
-    """
-    Transcribe audio bytes to text.
-    Tries local Whisper first; falls back to the OpenAI API.
-    """
     if _USE_LOCAL:
         return await _transcribe_local(audio_bytes, language)
     else:
@@ -58,9 +51,8 @@ def _run_local_whisper(audio_bytes: bytes, language: str) -> str:
 
 
 async def _transcribe_api(audio_bytes: bytes, language: str) -> str:
-    """Use OpenAI's hosted Whisper-1 API."""
     audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = "voice.ogg"   # extension tells Whisper the format
+    audio_file.name = "voice.ogg"
     response = await _client.audio.transcriptions.create(
         model="whisper-1",
         file=audio_file,

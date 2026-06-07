@@ -1,9 +1,0 @@
-__pycache__
-*.pyc
-.env
-laptop_agent/
-tests/
-README.md
-.git
-.gitignore
-tmp/

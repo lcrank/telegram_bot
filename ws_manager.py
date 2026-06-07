@@ -15,14 +15,12 @@ class WSManager:
     def __init__(self):
         self._socket: Optional[WebSocket] = None
         self._lock = asyncio.Lock()
-        # pending futures keyed by a request id
         self._pending: dict[str, asyncio.Future] = {}
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         async with self._lock:
             if self._socket is not None:
-                # Disconnect old agent before accepting new one
                 try:
                     await self._socket.close()
                 except Exception:
@@ -40,10 +38,6 @@ class WSManager:
         return self._socket is not None
 
     async def send_command(self, command: dict, wa_id: str, timeout: float = 30.0) -> dict:
-        """
-        Send a command to the laptop agent and await its result.
-        Raises RuntimeError if the agent is not connected or times out.
-        """
         if not self.is_connected:
             raise RuntimeError("Laptop agent is not connected")
 
@@ -65,7 +59,6 @@ class WSManager:
             self._pending.pop(request_id, None)
 
     async def receive_result(self, raw: str) -> None:
-        """Called when the laptop agent sends a result back."""
         try:
             data = json.loads(raw)
             request_id = data.get("_request_id")

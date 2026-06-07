@@ -1,4 +1,0 @@
-echo ".env" > .gitignore
-echo "tmp/" >> .gitignore
-echo "__pycache__/" >> .gitignore
-echo "*.pyc" >> .gitignore

@@ -27,7 +27,6 @@ else:
         api_key=settings.OPENAI_API_KEY,
     )
 
-# ── Tool definitions ───────────────────────────────────────────────────────────
 
 @tool
 def open_application(name: str) -> dict:
@@ -97,7 +96,7 @@ def get_clipboard() -> dict:
 
 @tool
 def set_volume(level: int) -> dict:
-    """Set system volume.  level: 0–100."""
+    """Set system volume.  level: 0-100."""
     return {"action": "set_volume", "level": max(0, min(100, level))}
 
 
@@ -105,7 +104,7 @@ def set_volume(level: int) -> dict:
 def ambiguous_command(question: str) -> dict:
     """
     Use this when the user's intent is unclear.
-    Return a clarifying question to ask back via WhatsApp.
+    Return a clarifying question to ask back via Telegram.
     """
     return {"action": "clarify", "question": question}
 
@@ -116,8 +115,6 @@ TOOLS = [
     run_shell_command, open_url, get_clipboard, set_volume,
     ambiguous_command,
 ]
-
-# ── Prompt ─────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a laptop control assistant. The user sends voice or text commands via Telegram.
 Your job is to interpret the command and call exactly ONE tool that best represents the action.
@@ -136,7 +133,6 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder("agent_scratchpad"),
 ])
 
-# ── Public interface ───────────────────────────────────────────────────────────
 
 async def interpret_command(transcript: str) -> dict:
     """
@@ -149,7 +145,6 @@ async def interpret_command(transcript: str) -> dict:
     try:
         result = await executor.ainvoke({"input": transcript})
         output = result.get("output", {})
-        # The tool returns a dict; if it came back as a string, parse it
         if isinstance(output, str):
             try:
                 output = json.loads(output)
