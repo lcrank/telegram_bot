@@ -76,7 +76,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for _ in range(MAX_FUNCTION_CALLS):
         response = await chat_with_ai(conv)
         if not response:
-            await msg.edit_text("AI service error. Check your OpenRouter key.")
+            await msg.edit_text("AI service error. Check your API key and provider config.")
             return
 
         choice = response["choices"][0]

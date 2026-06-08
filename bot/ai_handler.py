@@ -1,7 +1,7 @@
 import json
 import logging
 import httpx
-from .config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL, SITE_URL, SITE_NAME
+from .config import AI_API_KEY, AI_BASE_URL, AI_MODEL, AI_PROVIDER, SITE_URL, SITE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +78,16 @@ SYSTEM_PROMPT = (
 
 async def chat_with_ai(messages):
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {AI_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": SITE_URL,
-        "X-Title": SITE_NAME,
     }
 
+    if AI_PROVIDER == "openrouter":
+        headers["HTTP-Referer"] = SITE_URL
+        headers["X-Title"] = SITE_NAME
+
     body = {
-        "model": OPENROUTER_MODEL,
+        "model": AI_MODEL,
         "messages": messages,
         "temperature": 0.7,
         "max_tokens": 4096,
@@ -96,18 +98,18 @@ async def chat_with_ai(messages):
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
             resp = await client.post(
-                f"{OPENROUTER_BASE_URL}/chat/completions",
+                f"{AI_BASE_URL}/chat/completions",
                 headers=headers,
                 json=body,
             )
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
-            logger.error(f"OpenRouter API error: {e.response.status_code} - {e.response.text[:500]}")
+            logger.error(f"AI API error ({AI_PROVIDER}): {e.response.status_code} - {e.response.text[:500]}")
             return None
         except httpx.TimeoutException:
-            logger.error("OpenRouter API timeout")
+            logger.error(f"AI API timeout ({AI_PROVIDER})")
             return None
         except Exception as e:
-            logger.exception(f"OpenRouter error: {e}")
+            logger.exception(f"AI API error ({AI_PROVIDER}): {e}")
             return None
