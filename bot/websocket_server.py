@@ -4,7 +4,6 @@ import logging
 import uuid
 from datetime import datetime
 from websockets.asyncio.server import serve
-from websockets.http import Headers
 from .config import AUTH_TOKEN, WS_PORT
 
 logger = logging.getLogger(__name__)
@@ -106,7 +105,7 @@ manager = LaptopAgentManager()
 
 async def health_check(connection, request):
     if request.path in ("/", "/health"):
-        return connection.respond(200, b"OK\n", Headers({"Content-Type": "text/plain"}))
+        return connection.respond(200, "OK")
     return None
 
 
