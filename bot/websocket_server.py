@@ -105,6 +105,9 @@ manager = LaptopAgentManager()
 
 async def health_check(connection, request):
     if request.path in ("/", "/health"):
+        upgrade = request.headers.get("Upgrade", "")
+        if upgrade.lower() == "websocket":
+            return None
         return connection.respond(200, "OK")
     return None
 
