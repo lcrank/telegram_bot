@@ -1,5 +1,5 @@
 python-telegram-bot==21.10
-websockets==13.1
+websockets>=15
 httpx==0.28.1
 Pillow==11.1.0
 psutil==6.1.1

@@ -5,7 +5,7 @@ import io
 import base64
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from .config import TELEGRAM_BOT_TOKEN, ADMIN_USER_IDS
+from .config import TELEGRAM_BOT_TOKEN
 from .ai_handler import chat_with_ai, SYSTEM_PROMPT
 from .websocket_server import manager
 
@@ -66,10 +66,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-
-    if ADMIN_USER_IDS and user_id not in ADMIN_USER_IDS:
-        await update.message.reply_text("Unauthorized")
-        return
 
     text = update.message.text
     conv = get_conv(user_id)
