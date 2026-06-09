@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 venv/
 agent_config.json
+*.log
+test_key.py

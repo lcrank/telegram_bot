@@ -76,59 +76,64 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for _ in range(MAX_FUNCTION_CALLS):
         response = await chat_with_ai(conv)
         if not response:
-            await msg.edit_text("AI service error. Check your API key and provider config.")
+            logger.error(f"AI service failed for user {user_id}. Check logs for details.")
+            await msg.edit_text(
+                "AI service error.\n\n"
+                "Check logs for details, or verify:\n"
+                "1. Railway: set OPENROUTER_API_KEY or GEMINI_API_KEY in dashboard\n"
+                "2. Your API key is valid and has credits\n"
+                "3. The AI model name is correct"
+            )
             return
 
         choice = response["choices"][0]
         reply_msg = choice["message"]
 
-        if reply_msg.get("function_call"):
-            fc = reply_msg["function_call"]
-            name = fc["name"]
-            try:
-                args = json.loads(fc.get("arguments", "{}"))
-            except json.JSONDecodeError:
-                args = {}
-
+        if reply_msg.get("tool_calls"):
             conv.append(reply_msg)
 
-            await msg.edit_text(f"Executing: {name}...")
+            for tc in reply_msg["tool_calls"]:
+                if tc["type"] != "function":
+                    continue
+                name = tc["function"]["name"]
+                try:
+                    args = json.loads(tc["function"].get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
 
-            action_map = {
-                "execute_shell": "shell",
-                "list_files": "file_list",
-                "read_file": "file_read",
-                "write_file": "file_write",
-                "get_system_info": "system_info",
-                "take_screenshot": "screenshot",
-            }
+                await msg.edit_text(f"Executing: {name}...")
 
-            action = action_map.get(name)
-            if not action:
-                conv.append({
-                    "role": "function",
-                    "name": name,
-                    "content": json.dumps({"success": False, "error": f"Unknown function: {name}"}),
-                })
-                continue
+                action_map = {
+                    "execute_shell": "shell",
+                    "list_files": "file_list",
+                    "read_file": "file_read",
+                    "write_file": "file_write",
+                    "get_system_info": "system_info",
+                    "take_screenshot": "screenshot",
+                }
 
-            if name == "take_screenshot":
+                action = action_map.get(name)
+                if not action:
+                    conv.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": name,
+                        "content": json.dumps({"success": False, "error": f"Unknown function: {name}"}),
+                    })
+                    continue
+
                 result = await manager.send_command(action, args)
-                conv.append({
-                    "role": "function",
-                    "name": name,
-                    "content": json.dumps(result),
-                })
-                if result.get("success"):
+
+                if name == "take_screenshot" and result.get("success"):
                     try:
                         img_bytes = base64.b64decode(result["data"])
                         await update.message.reply_photo(photo=io.BytesIO(img_bytes))
                     except Exception as e:
                         logger.error(f"Screenshot send error: {e}")
-            else:
-                result = await manager.send_command(action, args)
+
                 conv.append({
-                    "role": "function",
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
                     "name": name,
                     "content": json.dumps(result),
                 })
