@@ -21,12 +21,25 @@ def get_conv(user_id):
     return conversations[user_id]
 
 
-def trim_conv(conv, max_messages=30):
+def trim_conv(conv, max_tokens=96000):
     system = conv[0]
     recent = conv[1:]
-    if len(recent) > max_messages:
-        recent = recent[-max_messages:]
+    while recent and count_tokens([system] + recent) > max_tokens:
+        recent.pop(0)
     return [system] + recent
+
+
+def count_tokens(messages):
+    total = 0
+    for m in messages:
+        content = m.get("content", "")
+        total += len(content) // 4
+        if m.get("role") == "system":
+            total += 200
+        if m.get("tool_calls"):
+            for tc in m["tool_calls"]:
+                total += len(json.dumps(tc)) // 4
+    return total
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,13 +143,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await update.message.reply_photo(photo=io.BytesIO(img_bytes))
                     except Exception as e:
                         logger.error(f"Screenshot send error: {e}")
-
-                conv.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "name": name,
-                    "content": json.dumps(result),
-                })
+                    conv.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": name,
+                        "content": json.dumps({"success": True, "data": "[screenshot taken and sent to user]"}),
+                    })
+                else:
+                    result_for_ai = dict(result)
+                    if isinstance(result_for_ai.get("data"), str) and len(result_for_ai["data"]) > 1000:
+                        result_for_ai["data"] = result_for_ai["data"][:1000] + "... [truncated]"
+                    conv.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": name,
+                        "content": json.dumps(result_for_ai),
+                    })
 
             conv = trim_conv(conv)
             await msg.edit_text("Processing result...")
