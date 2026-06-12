@@ -78,20 +78,121 @@ TOOLS = [
             "description": "Take a screenshot of the laptop screen",
             "parameters": {"type": "object", "properties": {}}
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "press_key",
+            "description": "Press a keyboard key or key combination. Examples: 'win+r', 'ctrl+c', 'alt+tab', 'enter', 'escape'",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keys": {"type": "string", "description": "Key or key combination separated by + (e.g. 'ctrl+c', 'win+r', 'alt+tab')"}
+                },
+                "required": ["keys"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "type_text",
+            "description": "Type text on the laptop keyboard",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to type"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mouse_click",
+            "description": "Click the mouse at specified coordinates or current position",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "X coordinate (optional, uses current position if omitted)"},
+                    "y": {"type": "integer", "description": "Y coordinate (optional)"},
+                    "button": {"type": "string", "description": "Mouse button: 'left', 'right', or 'middle' (default: left)", "enum": ["left", "right", "middle"]},
+                    "clicks": {"type": "integer", "description": "Number of clicks (default: 1, use 2 for double-click)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mouse_move",
+            "description": "Move the mouse cursor to specified coordinates",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "X coordinate to move to"},
+                    "y": {"type": "integer", "description": "Y coordinate to move to"}
+                },
+                "required": ["x", "y"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "launch_app",
+            "description": "Launch an application by path or name (e.g. 'notepad.exe', 'calc.exe', 'chrome')",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Application path, executable name, or Windows URI (e.g. 'notepad.exe', 'C:\\Program Files\\...')"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clipboard_read",
+            "description": "Read the current text content from the clipboard",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clipboard_write",
+            "description": "Write text to the clipboard",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to copy to clipboard"}
+                },
+                "required": ["text"]
+            }
+        }
     }
 ]
 
 SYSTEM_PROMPT = (
-    "You are FRIDAY, an advanced AI assistant integrated with the user's laptop. "
-    "You can execute shell commands, manage files, take screenshots, monitor system resources, "
-    "and answer questions conversationally.\n\n"
+    "You are FRIDAY, an advanced AI assistant like JARVIS from Iron Man. "
+    "You are integrated with the user's laptop and can control it completely:\n"
+    "- Execute shell commands\n"
+    "- Manage files (list, read, write)\n"
+    "- Take screenshots and describe what you see\n"
+    "- Monitor system resources (CPU, memory, disk, processes)\n"
+    "- Control keyboard and mouse (press keys, type text, click, move cursor)\n"
+    "- Launch applications\n"
+    "- Read and write clipboard\n\n"
     "Rules:\n"
-    "- Be concise, helpful, and proactive\n"
+    "- Be concise, helpful, and proactive like JARVIS\n"
     "- NEVER run destructive commands without explicit confirmation (delete, format, rm -rf)\n"
-    "- Respect privacy only access what the user asks about\n"
-    "- When displaying file listings or data, format it clearly\n"
-    "- For screenshots, you can comment on what you see\n"
-    "- The user's OS is Windows unless otherwise specified"
+    "- When asked to control the laptop, just do it rather than explaining you can't\n"
+    "- For screenshots, comment on what you see like JARVIS would\n"
+    "- The user's OS is Windows unless otherwise specified\n"
+    "- Use the mouse/keyboard/clipboard tools for GUI interaction instead of shell when appropriate"
 )
 
 async def chat_with_ai(messages):

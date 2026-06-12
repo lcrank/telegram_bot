@@ -158,6 +158,108 @@ async def handle_screenshot():
         return {"success": False, "error": str(e)}
 
 
+def handle_press_key(params):
+    keys = params.get("keys", "")
+    if not keys:
+        return {"success": False, "error": "No keys specified"}
+    try:
+        import pyautogui
+        combo = [k.strip() for k in keys.split("+")]
+        pyautogui.hotkey(*combo)
+        return {"success": True, "data": f"Pressed: {keys}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def handle_type_text(params):
+    text = params.get("text", "")
+    if not text:
+        return {"success": False, "error": "No text specified"}
+    try:
+        import pyautogui
+        pyautogui.write(text, interval=0.02)
+        return {"success": True, "data": f"Typed {len(text)} characters"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def handle_mouse_click(params):
+    try:
+        import pyautogui
+        x = params.get("x")
+        y = params.get("y")
+        button = params.get("button", "left")
+        clicks = params.get("clicks", 1)
+        if x is not None and y is not None:
+            pyautogui.click(x, y, button=button, clicks=clicks)
+        else:
+            pyautogui.click(button=button, clicks=clicks)
+        return {"success": True, "data": f"Mouse clicked ({button}) at ({x}, {y})"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def handle_mouse_move(params):
+    try:
+        import pyautogui
+        x = params.get("x")
+        y = params.get("y")
+        duration = params.get("duration", 0.3)
+        if x is None or y is None:
+            return {"success": False, "error": "x and y coordinates required"}
+        pyautogui.moveTo(x, y, duration=duration)
+        return {"success": True, "data": f"Moved mouse to ({x}, {y})"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def handle_launch_app(params):
+    path = params.get("path", "")
+    if not path:
+        return {"success": False, "error": "No app path specified"}
+    try:
+        subprocess.Popen(path, shell=True)
+        return {"success": True, "data": f"Launched: {path}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def handle_clipboard_read(params=None):
+    try:
+        import pyperclip
+        text = pyperclip.paste()
+        return {"success": True, "data": text[:100000]}
+    except ImportError:
+        try:
+            result = subprocess.run(["powershell", "-command", "Get-Clipboard"], capture_output=True, text=True)
+            if result.returncode == 0:
+                return {"success": True, "data": result.stdout.strip()[:100000]}
+            return {"success": False, "error": "pyperclip not installed"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def handle_clipboard_write(params):
+    text = params.get("text", "")
+    if not text:
+        return {"success": False, "error": "No text specified"}
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        return {"success": True, "data": f"Copied {len(text)} characters to clipboard"}
+    except ImportError:
+        try:
+            escaped = text.replace("'", "''")
+            subprocess.run(["powershell", "-command", f"Set-Clipboard -Value '{escaped}'"], check=True)
+            return {"success": True, "data": f"Copied {len(text)} characters to clipboard"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 ACTION_HANDLERS = {
     "shell": handle_shell,
     "file_list": lambda p: handle_file_list(p.get("path", ".")),
@@ -165,6 +267,13 @@ ACTION_HANDLERS = {
     "file_write": lambda p: handle_file_write(p.get("path", ""), p.get("content", "")),
     "system_info": lambda p: handle_system_info(),
     "screenshot": lambda p: handle_screenshot(),
+    "press_key": lambda p: handle_press_key(p),
+    "type_text": lambda p: handle_type_text(p),
+    "mouse_click": lambda p: handle_mouse_click(p),
+    "mouse_move": lambda p: handle_mouse_move(p),
+    "launch_app": lambda p: handle_launch_app(p),
+    "clipboard_read": lambda p: handle_clipboard_read(p),
+    "clipboard_write": lambda p: handle_clipboard_write(p),
 }
 
 
@@ -173,9 +282,10 @@ async def execute_action(action, params):
     if not handler:
         return {"success": False, "error": f"Unknown action: {action}"}
     try:
-        if asyncio.iscoroutinefunction(handler):
-            return await handler(params)
-        return handler(params)
+        result = handler(params)
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
