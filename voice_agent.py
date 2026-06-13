@@ -1,9 +1,9 @@
 """
-FRIDAY Voice Agent - Always-listening with wake word detection.
+FRIDAY Voice Agent - Always-listening with wake word detection + two-way voice.
 Uses openWakeWord (ONNX) for wake word detection - no API keys needed.
-Records speech, transcribes via Whisper, and sends to Telegram.
+Records speech, transcribes via Whisper, sends to server AI, speaks response via TTS.
 
-Dependencies: pip install openwakeword sounddevice numpy httpx
+Dependencies: pip install openwakeword sounddevice numpy httpx pyttsx3
 """
 
 import asyncio
@@ -13,10 +13,15 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 import wave
 import argparse
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import numpy as np
 import sounddevice as sd
@@ -34,23 +39,26 @@ def _load_config():
     if cfg_path.exists():
         try:
             with open(cfg_path) as f:
-                return json.load(f).get("voice", {})
+                return json.load(f)
         except Exception:
             pass
     return {}
 
 
-_voice_cfg = _load_config()
+_full_cfg = _load_config()
+_cfg = _full_cfg.get("voice", {})
 
-WAKE_WORD = os.environ.get("WAKE_WORD") or _voice_cfg.get("wake_word", "hey_jarvis")
+WAKE_WORD = os.environ.get("WAKE_WORD") or _cfg.get("wake_word", "hey_jarvis")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = int(os.environ.get("CHAT_ID", "0"))
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://openrouter.ai/api/v1")
-SILENCE_DURATION = float(os.environ.get("SILENCE_DURATION") or _voice_cfg.get("silence_duration", 1.5))
-RECORD_TIMEOUT = float(os.environ.get("RECORD_TIMEOUT") or _voice_cfg.get("record_timeout", 15.0))
-SILENCE_THRESHOLD = int(os.environ.get("SILENCE_THRESHOLD") or _voice_cfg.get("silence_threshold", 800))
-WAKE_THRESHOLD = float(os.environ.get("WAKE_THRESHOLD") or _voice_cfg.get("wake_threshold", 0.5))
+SILENCE_DURATION = float(os.environ.get("SILENCE_DURATION") or _cfg.get("silence_duration", 1.5))
+RECORD_TIMEOUT = float(os.environ.get("RECORD_TIMEOUT") or _cfg.get("record_timeout", 15.0))
+SILENCE_THRESHOLD = int(os.environ.get("SILENCE_THRESHOLD") or _cfg.get("silence_threshold", 800))
+WAKE_THRESHOLD = float(os.environ.get("WAKE_THRESHOLD") or _cfg.get("wake_threshold", 0.5))
+AGENT_SERVER_URL = os.environ.get("AGENT_SERVER_URL") or _full_cfg.get("server_url", "ws://localhost:8080")
+AGENT_AUTH_TOKEN = os.environ.get("AGENT_AUTH_TOKEN") or _full_cfg.get("auth_token", "friday-secret-key")
 
 SAMPLE_RATE = 16000
 FRAME_SIZE = 1280
@@ -67,21 +75,47 @@ class VoiceAgent:
         self.queue = None
         self.running = False
         self.sample_rate = SAMPLE_RATE
+        self.ws = None
+
+    async def _ensure_ws(self):
+        if self.ws is not None:
+            return True
+        try:
+            import websockets
+            self.ws = await websockets.connect(AGENT_SERVER_URL, ping_interval=20, ping_timeout=10)
+            await self.ws.send(json.dumps({
+                "type": "auth", "token": AGENT_AUTH_TOKEN, "role": "voice",
+            }))
+            resp = json.loads(await self.ws.recv())
+            if resp.get("type") == "auth_ok":
+                logger.info("Voice agent connected to server via WebSocket")
+                return True
+            logger.error(f"Voice agent auth failed: {resp.get('error')}")
+            await self.ws.close()
+            self.ws = None
+            return False
+        except Exception as e:
+            logger.warning(f"WebSocket connection failed: {e}")
+            self.ws = None
+            return False
+
+    async def _close_ws(self):
+        if self.ws:
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+            self.ws = None
 
     def start(self):
         try:
             from openwakeword import Model
         except ImportError:
-            logger.error(
-                "openwakeword not installed. Run: pip install openwakeword"
-            )
+            logger.error("openwakeword not installed. Run: pip install openwakeword")
             sys.exit(1)
 
         if not TELEGRAM_BOT_TOKEN or not CHAT_ID:
-            logger.error(
-                "TELEGRAM_BOT_TOKEN and CHAT_ID must be set.\n"
-                "Run /myid in the Telegram bot to get your chat_id."
-            )
+            logger.error("TELEGRAM_BOT_TOKEN and CHAT_ID must be set.")
             sys.exit(1)
 
         logger.info(f"Loading wake word model '{WAKE_WORD}'...")
@@ -92,10 +126,7 @@ class VoiceAgent:
             )
         except Exception as e:
             logger.error(f"Failed to load wake word model '{WAKE_WORD}': {e}")
-            logger.error(
-                "Available models: alexa, hey_jarvis, hey_mycroft, hey_rhasspy\n"
-                "Set WAKE_WORD env var or 'wake_word' in agent_config.json"
-            )
+            logger.error("Available models: alexa, hey_jarvis, hey_mycroft, hey_rhasspy")
             sys.exit(1)
 
         self.model_name = WAKE_WORD
@@ -106,9 +137,7 @@ class VoiceAgent:
             f"Voice agent started.\n"
             f"  Wake word: '{WAKE_WORD}'\n"
             f"  Threshold: {WAKE_THRESHOLD}\n"
-            f"  Silence threshold: {SILENCE_THRESHOLD}\n"
-            f"  Silence duration: {SILENCE_DURATION}s\n"
-            f"  Record timeout: {RECORD_TIMEOUT}s\n"
+            f"  Server: {AGENT_SERVER_URL}\n"
             "Listening..."
         )
 
@@ -168,10 +197,14 @@ class VoiceAgent:
                 logger.info("Recording too short, discarding")
 
     async def event_loop(self):
-        while self.running:
-            event_type, data = await self.queue.get()
-            if event_type == "recording":
-                await self._process_recording(data)
+        await self._ensure_ws()
+        try:
+            while self.running:
+                event_type, data = await self.queue.get()
+                if event_type == "recording":
+                    await self._process_recording(data)
+        finally:
+            await self._close_ws()
 
     async def _process_recording(self, audio_data):
         logger.info("Transcribing...")
@@ -182,9 +215,37 @@ class VoiceAgent:
             logger.info("No speech detected")
             return
 
-        logger.info(f"Transcribed ({len(text)} chars): {text[:200]}")
-        await self._send_to_telegram(text.strip())
-        logger.info("Message sent to Telegram")
+        transcript = text.strip()
+        logger.info(f"Transcribed ({len(transcript)} chars): {transcript[:200]}")
+
+        if self.ws:
+            try:
+                await self.ws.send(json.dumps({"type": "voice_query", "text": transcript}))
+                resp = json.loads(await asyncio.wait_for(self.ws.recv(), timeout=60.0))
+                if resp.get("type") == "voice_response":
+                    response_text = resp.get("text", "")
+                    if response_text:
+                        logger.info(f"AI response ({len(response_text)} chars): {response_text[:200]}")
+                        await self._speak(response_text)
+                        await self._send_to_telegram(f"🎤 {transcript}\n\n🤖 {response_text}")
+                    else:
+                        await self._send_to_telegram(f"🎤 {transcript}")
+                else:
+                    await self._send_to_telegram(f"🎤 {transcript}")
+            except Exception as e:
+                logger.warning(f"Voice query failed: {e}, falling back to Telegram")
+                await self._send_to_telegram(f"🎤 {transcript}")
+        else:
+            await self._send_to_telegram(f"🎤 {transcript}")
+
+    async def _speak(self, text):
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+        except Exception as e:
+            logger.warning(f"TTS failed: {e}")
 
     def _audio_to_wav(self, audio_data):
         buf = io.BytesIO()
@@ -219,9 +280,7 @@ class VoiceAgent:
                     )
                     if resp.status_code == 200:
                         return resp.json().get("text", "").strip()
-                    logger.warning(
-                        f"Whisper error: {resp.status_code} - {resp.text[:200]}"
-                    )
+                    logger.warning(f"Whisper error: {resp.status_code} - {resp.text[:200]}")
                     return None
         finally:
             try:
@@ -236,15 +295,10 @@ class VoiceAgent:
             try:
                 resp = await client.post(
                     f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": CHAT_ID,
-                        "text": text,
-                    },
+                    json={"chat_id": CHAT_ID, "text": text},
                 )
                 if resp.status_code != 200:
-                    logger.warning(
-                        f"Telegram API error: {resp.status_code} - {resp.text[:200]}"
-                    )
+                    logger.warning(f"Telegram API error: {resp.status_code} - {resp.text[:200]}")
             except Exception as e:
                 logger.warning(f"Failed to send to Telegram: {e}")
 
@@ -277,16 +331,11 @@ def test_mic():
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio.tobytes())
     print(f"\nSaved test recording to {test_path}")
-    print("(you can listen to it to verify audio quality)")
 
 
 def main():
     parser = argparse.ArgumentParser(description="FRIDAY Voice Agent")
-    parser.add_argument(
-        "--test-mic",
-        action="store_true",
-        help="Test microphone and suggest settings",
-    )
+    parser.add_argument("--test-mic", action="store_true", help="Test microphone and suggest settings")
     args = parser.parse_args()
 
     if args.test_mic:
